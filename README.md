@@ -64,3 +64,10 @@ project_submission_tracker/
 ├── uploads/               ← Student project files
 ├── requirements.txt
 └── screenshots/           ← Add screenshots here
+
+### 👩‍💻 Contributors
+| Name                                                    | USN           | Role                         |
+| ------------------------------------------------------- | ------------- | -----------------------------|
+| Lakshita Negi                                           | PES2UG23CS301 | Developer / DB / UI Designer |
+| Mahashweta Panigrahi                                    | PES2UG23CS315 | Developer / UI Designer      |
+
