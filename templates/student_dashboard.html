@@ -4,7 +4,6 @@
 <div class="container mt-4">
   <h2 class="fw-bold mb-4 text-center">Welcome, {{ session['name'] }}</h2>
 
-  <!-- 🔹 Available Projects -->
   <div class="card p-4 mb-5 shadow-sm">
     <h5 class="mb-3 fw-semibold">Available Projects</h5>
     <table class="table table-hover align-middle">
@@ -13,7 +12,7 @@
           <th>Project Title</th>
           <th>Faculty</th>
           <th>Deadline</th>
-          <th>Action</th>
+          <th>Your Grade</th> <th>Action</th>
         </tr>
       </thead>
       <tbody>
@@ -22,6 +21,13 @@
           <td>{{ p.title }}</td>
           <td>{{ p.faculty_name }}</td>
           <td>{{ p.deadline }}</td>
+          <td>
+            {% if p.student_grade is not none %}
+                <span class="badge bg-success">Grade: {{ p.student_grade }}</span>
+            {% else %}
+                <span class="badge bg-secondary">Not Graded</span>
+            {% endif %}
+          </td>
           <td>
             <form action="{{ url_for('submit_project') }}" method="POST" enctype="multipart/form-data" class="d-flex gap-2">
               <input type="hidden" name="project_id" value="{{ p.project_id }}">
@@ -35,7 +41,6 @@
     </table>
   </div>
 
-  <!-- 🔹 Submissions -->
   <div class="card p-4 shadow-sm">
     <h5 class="mb-3 fw-semibold">Your Submissions</h5>
     <table class="table table-bordered table-striped align-middle">

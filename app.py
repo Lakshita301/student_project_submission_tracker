@@ -89,7 +89,7 @@ def faculty_dashboard():
     cur.execute("""
         SELECT p.project_id, p.title, p.deadline, p.max_marks, COUNT(s.submission_id) AS submissions
         FROM Project p
-        LEFT JOIN Submission s ON p.project_id = s.project_id
+        LEFT JOIN submission s ON p.project_id = s.project_id
         WHERE p.faculty_id = %s
         GROUP BY p.project_id
     """, (session["user_id"],))
@@ -99,7 +99,7 @@ def faculty_dashboard():
     cur.execute("""
         SELECT s.submission_id, st.name AS student_name, p.title, p.max_marks, 
                s.status, s.submission_date, s.file_link, s.grade, s.faculty_comments
-        FROM Submission s
+        FROM submission s
         JOIN Student st ON s.student_id = st.student_id
         JOIN Project p ON s.project_id = p.project_id
         WHERE p.faculty_id = %s
@@ -112,7 +112,7 @@ def faculty_dashboard():
 
 
 # -------------------------------------------------
-# 🗑️ Delete Project
+# 🗑️ Delete Project (Now relies on the MySQL TRIGGER for submission deletion)
 # -------------------------------------------------
 @app.route("/delete_project/<int:project_id>", methods=["POST"])
 def delete_project(project_id):
@@ -123,9 +123,8 @@ def delete_project(project_id):
     conn = get_db_connection()
     cur = conn.cursor()
 
-    # Delete submissions first (cascade manually)
-    cur.execute("DELETE FROM Submission WHERE project_id = %s", (project_id,))
-    # Delete the project itself
+    # The MySQL TRIGGER 'before_project_delete' handles the deletion of submissions.
+    # We only need to delete the project itself.
     cur.execute("DELETE FROM Project WHERE project_id = %s AND faculty_id = %s",
                 (project_id, session["user_id"]))
     conn.commit()
@@ -162,7 +161,7 @@ def create_project():
 
 
 # -------------------------------------------------
-# 👨‍🎓 Student Dashboard
+# 👨‍🎓 Student Dashboard (Includes Nested Query/Subquery)
 # -------------------------------------------------
 @app.route("/student_dashboard")
 def student_dashboard():
@@ -172,19 +171,29 @@ def student_dashboard():
     conn = get_db_connection()
     cur = conn.cursor(dictionary=True)
 
-    # Available projects
+    # Available projects (Includes a Nested Query to get the faculty name)
+    # The submission list below acts as a read for student submissions.
     cur.execute("""
-        SELECT p.project_id, p.title, p.description, p.deadline, f.name AS faculty_name
+        SELECT 
+            p.project_id, 
+            p.title, 
+            p.description, 
+            p.deadline, 
+            f.name AS faculty_name,
+            # NESTED QUERY / SUBQUERY: Check the student's grade if they have submitted
+            (SELECT grade FROM submission s 
+             WHERE s.project_id = p.project_id AND s.student_id = %s 
+             ORDER BY s.submission_date DESC LIMIT 1) AS student_grade
         FROM Project p
         JOIN Faculty f ON p.faculty_id = f.faculty_id
         ORDER BY p.deadline ASC
-    """)
+    """, (session["user_id"],))
     projects = cur.fetchall()
 
     # Student submissions
     cur.execute("""
         SELECT s.submission_id, p.title, s.submission_date, s.status, s.file_link,s.grade, s.faculty_comments
-        FROM Submission s
+        FROM submission s
         JOIN Project p ON s.project_id = p.project_id
         WHERE s.student_id = %s
         ORDER BY s.submission_date DESC
@@ -214,18 +223,39 @@ def submit_project():
 
         conn = get_db_connection()
         cur = conn.cursor()
+
+        # 1. Check if submission already exists (for re-submission)
         cur.execute("""
-            INSERT INTO Submission (student_id, project_id, submission_date, file_link, status)
-            VALUES (%s, %s, %s, %s, 'Submitted')
-        """, (student_id, project_id, datetime.now().date(), filename))
+            SELECT submission_id FROM submission 
+            WHERE student_id = %s AND project_id = %s
+        """, (student_id, project_id))
+        existing_submission = cur.fetchone()
+
+        if existing_submission:
+            # Update existing submission (Re-submission)
+            cur.execute("""
+                UPDATE submission
+                SET submission_date = %s, file_link = %s, status = 'Submitted', grade = NULL, faculty_comments = NULL
+                WHERE student_id = %s AND project_id = %s
+            """, (datetime.now().date(), filename, student_id, project_id))
+            flash_message = "🔄 Project re-submitted successfully! Previous grade cleared."
+        else:
+            # Insert new submission
+            cur.execute("""
+                INSERT INTO submission (student_id, project_id, submission_date, file_link, status)
+                VALUES (%s, %s, %s, %s, 'Submitted')
+            """, (student_id, project_id, datetime.now().date(), filename))
+            flash_message = "✅ Project submitted successfully!"
+            
         conn.commit()
         conn.close()
 
-        flash("✅ Project submitted successfully!", "success")
+        flash(flash_message, "success")
         return redirect(url_for("student_dashboard"))
     else:
         flash("No file uploaded!", "danger")
         return redirect(url_for("student_dashboard"))
+
 
 # -------------------------------------------------
 # 🧾 Faculty Grading Route
@@ -242,14 +272,14 @@ def grade_submission(submission_id):
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("""
-        UPDATE Submission
+        UPDATE submission
         SET grade=%s, faculty_comments=%s, status='Graded'
         WHERE submission_id=%s
     """, (grade, comments, submission_id))
     conn.commit()
     conn.close()
 
-    flash("✅ Submission graded successfully!", "success")
+    flash("✅ submission graded successfully!", "success")
     return redirect(url_for("faculty_dashboard"))
 
 # -------------------------------------------------
@@ -273,7 +303,7 @@ def live_status():
     cur.execute("""
         SELECT s.submission_id, st.name AS student, p.title AS project,
                s.status, s.submission_date
-        FROM Submission s
+        FROM submission s
         JOIN Student st ON s.student_id = st.student_id
         JOIN Project p ON s.project_id = p.project_id
         JOIN Faculty f ON p.faculty_id = f.faculty_id
